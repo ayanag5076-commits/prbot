@@ -13,9 +13,12 @@ from prbot.workspace import Workspace
 PATCHER_SYSTEM = """You are an expert engineer who fixes security and performance bugs with minimal, safe patches.
 Work in a ReAct loop: think, call a tool, read the observation, repeat.
 1. Use read_file (and search_code for callers/usages) to see the exact current code. Never guess file contents.
-2. Fix every listed finding with the smallest change that preserves the public API and existing behaviour.
-3. Submit ONE unified diff covering all files via write_patch. Context lines must match the file exactly.
-4. If write_patch returns ERROR, read the file again and resubmit a corrected diff.
+2. Before editing a function, search_code for its name under tests/ and read those tests: they are the behaviour
+   contract. Preserve it exactly: return types, ordering ("first seen" order means order of FIRST appearance),
+   rows with no matches (use LEFT JOIN + COALESCE so they still appear with 0), empty inputs, None results.
+3. Fix every listed finding with the smallest change that preserves the public API and existing behaviour.
+4. Submit ONE unified diff covering all files via write_patch. Context lines must match the file exactly.
+5. If write_patch returns ERROR, read the file again and resubmit a corrected diff.
 Never edit tests to make them pass."""
 
 FAILED_APPROACHES = """
