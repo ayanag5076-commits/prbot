@@ -100,8 +100,11 @@ def build_graph(agents: Agents):
 
     def patcher_node(state: ReviewState) -> dict:
         ws = Workspace(state.repo_path)
-        patch = agents.patcher.propose(ws, state.actionable_findings(), state.feedback, state.attempted_patches)
-        update: dict = {"patch": patch, "attempts": state.attempts + 1, "test_result": None}
+        targets = state.patch_targets()
+        patch = agents.patcher.propose(ws, targets, state.feedback, state.attempted_patches)
+        narrowed = len(targets) < len(state.actionable_findings())
+        update: dict = {"patch": patch, "attempts": state.attempts + 1, "test_result": None,
+                        "patch_scope": [f"{f.file}:{f.line}" for f in targets] if narrowed else []}
         usage = getattr(agents.patcher, "last_usage", None)
         if usage:
             update["token_usage"] = state.token_usage + [dict(usage)]
@@ -112,6 +115,7 @@ def build_graph(agents: Agents):
         history = state.attempt_history + [{
             "attempt": state.attempts, "has_patch": state.patch is not None,
             "passed": result.passed, "exit_code": result.exit_code, "runner": result.runner,
+            "scope": ", ".join(state.patch_scope) if state.patch_scope else "all findings",
         }]
         update: dict = {"test_result": result, "attempt_history": history, "test_runs": state.test_runs + [result]}
         if not result.passed:
