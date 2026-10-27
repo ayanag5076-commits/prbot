@@ -46,6 +46,9 @@ docker_ready = (os.environ.get("PRBOT_RUN_DOCKER_TESTS") == "1" and shutil.which
 @pytest.mark.skipif(not docker_ready, reason="set PRBOT_RUN_DOCKER_TESTS=1 with Docker and the tester image built")
 def test_sandbox_isolation_live_egress(tmp_path):
     (tmp_path / "probe.py").write_text(PROBE)
+    # the container user has no CAP_DAC_OVERRIDE (--cap-drop ALL), so the mount must be world-readable
+    tmp_path.chmod(0o755)
+    (tmp_path / "probe.py").chmod(0o644)
     cmd = DockerRunner(IMAGE, command=["python", "probe.py"]).build_cmd(tmp_path, "prbot-egress-probe")
     out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     assert "EGRESS_BYTES 0" in out.stdout, out.stdout + out.stderr
