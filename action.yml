@@ -1,0 +1,82 @@
+name: "prbot - autonomous PR review & patch"
+description: "Finds security/performance bugs in a PR, writes a fix, and verifies it with pytest in a network-less Docker sandbox."
+author: "ayanag5076-commits"
+branding:
+  icon: "shield"
+  color: "green"
+
+inputs:
+  openai-api-key:
+    description: "OpenAI API key (store it as a repository secret)."
+    required: true
+  github-token:
+    description: "Token used to read the PR and post the review. The default job token is enough."
+    required: false
+    default: ${{ github.token }}
+  model:
+    description: "OpenAI model."
+    required: false
+    default: "gpt-4.1-mini"
+  min-severity:
+    description: "Lowest severity the patcher acts on (low|medium|high|critical)."
+    required: false
+    default: "medium"
+  post-review:
+    description: "Post inline review comments on the PR."
+    required: false
+    default: "true"
+  open-fix-pr:
+    description: "Push a verified fix branch and open a follow-up PR (needs contents: write)."
+    required: false
+    default: "false"
+  max-attempts:
+    description: "Patch/test self-correction iterations."
+    required: false
+    default: "3"
+
+outputs:
+  status:
+    description: "Final status: clean | patched | review_only | failed | aborted."
+    value: ${{ steps.review.outputs.status }}
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install prbot
+      shell: bash
+      run: pip install --quiet "${{ github.action_path }}"
+    - name: Build the sandbox image
+      shell: bash
+      run: docker build --quiet -t prbot-tester:py3.12 -f "${{ github.action_path }}/docker/tester.Dockerfile" "${{ github.action_path }}"
+    - name: Review, patch, verify
+      id: review
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        OPENAI_MODEL: ${{ inputs.model }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        PRBOT_GITHUB_AUTH: token
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        if [ -z "$PR_NUMBER" ]; then echo "prbot runs on pull_request events only"; exit 1; fi
+        flags="--yes --min-severity ${{ inputs.min-severity }} --max-attempts ${{ inputs.max-attempts }}"
+        if [ "${{ inputs.post-review }}" = "true" ]; then flags="$flags --post-review"; fi
+        if [ "${{ inputs.open-fix-pr }}" = "true" ]; then flags="$flags --open-fix-pr"; fi
+        set +e
+        python -m prbot review --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" $flags | tee prbot-out.log
+        code=${PIPESTATUS[0]}
+        set -e
+        status=$(grep -o 'status: [a-z_]*' prbot-out.log | head -1 | cut -d' ' -f2)
+        echo "status=${status:-unknown}" >> "$GITHUB_OUTPUT"
+        if [ -f prbot-out/report.md ]; then cat prbot-out/report.md >> "$GITHUB_STEP_SUMMARY"; fi
+        exit $code
+    - name: Upload report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: prbot-report
+        path: prbot-out/
+        if-no-files-found: ignore
