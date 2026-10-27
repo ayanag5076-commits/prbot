@@ -3,10 +3,10 @@
 [![ci](https://github.com/ayanag5076-commits/prbot/actions/workflows/ci.yml/badge.svg)](https://github.com/ayanag5076-commits/prbot/actions/workflows/ci.yml)
 ![python](https://img.shields.io/badge/python-3.12-blue)
 ![LangGraph](https://img.shields.io/badge/built%20with-LangGraph-1c3c3c)
-![cost](https://img.shields.io/badge/live%20review-~%240.003-brightgreen)
+![cost](https://img.shields.io/badge/live%20review-under%20%240.01-brightgreen)
 ![sandbox](https://img.shields.io/badge/sandbox-network%20none-informational)
 
-![prbot catching three seeded bugs, failing its first patch, and self-correcting](docs/demo/prbot-demo.gif)
+![Live gpt-4.1-mini run: prbot catches three seeded bugs, its first patch fails a test, and it self-corrects in 25s for $0.008](docs/demo/prbot-demo.gif)
 
 A graph-based multi-agent system that reviews a pull request, writes a patch for the security and
 performance bugs it finds, **proves the patch doesn't break the build** by running the test suite in a
@@ -59,7 +59,7 @@ The platform tracks and records execution safety metrics via a local JSONL telem
 | Metric / Constraint | Baseline Target | Performance Realization | Verification Status |
 | :--- | :--- | :--- | :--- |
 | **Sandbox Network Egress** | 0 Bytes (Blocked) | 0 Bytes (`--network none`, `--cap-drop ALL`) | Verified via `test_sandbox_isolation` |
-| **Self-Correction Recovery** | < 3 Attempts | **1 Attempt** (live gpt-4.1-mini run, SQLi fix passed first try) | Active Engine Runtime |
+| **Self-Correction Recovery** | < 3 Attempts | **2 Attempts** (live gpt-4.1-mini: 3 bugs found, attempt 1 failed a test, attempt 2 passed) | Active Engine Runtime |
 | **AST Diff Pre-Validation** | 100% Syntax Pass | Checked before any container run | Verified via `tools.py` |
 | **Secret Leaks Detected** | 0 Key Escapes | 0 Variables Exposed | Verified via `tests/` CI guard |
 | **P90 Execution Latency** | Under 45s | **10.03s** (2 Docker runs) | Met · `python -m prbot metrics` |
@@ -68,7 +68,8 @@ The platform tracks and records execution safety metrics via a local JSONL telem
 How each row is produced:
 
 - **Sandbox Network Egress:** Agent C runs tests with `--network none`, a read-only root FS, `--cap-drop ALL` and `no-new-privileges`. `tests/test_sandbox_isolation.py` asserts the flags on every run, and in CI a live container tries to open sockets to the internet and must report `EGRESS_BYTES 0`.
-- **Self-Correction Recovery:** the demo PR's first patch uses the MySQL `%s` placeholder, SQLite rejects it, the failure log goes back to Agent B, and attempt 2 switches to `?` and passes. The loop is capped at 3.
+- **Self-Correction Recovery (live):** gpt-4.1-mini's first patch broke `test_duplicates_in_first_seen_order` (returned `['b', 'a']`); the failing assertion went back to Agent B, which rewrote the fix to keep first-appearance order and passed on attempt 2.
+- **Self-Correction Recovery (offline demo):** the scripted first patch uses the MySQL `%s` placeholder, SQLite rejects it, the failure log goes back to Agent B, and attempt 2 switches to `?` and passes. The loop is capped at 3.
 - **AST Diff Pre-Validation:** `write_patch` applies the diff in memory and `ast.parse`s every changed `.py` file. Broken patches go back to the agent as observations, so no container is spent on them.
 - **Secret Leaks Detected:** `test_no_secrets_committed` scans the tree for OpenAI/GitHub tokens and private keys on every CI run. `.env`, `.env.*` and `*.pem` are git-ignored.
 - **P90 Execution Latency:** end-to-end wall time per review (fetch, baseline, review, patch, sandboxed tests), taken from `prbot-out/metrics.jsonl` across Docker runs. Token cost per repair and Docker-vs-host overhead are tracked in the same ledger (`python -m prbot metrics --markdown`).
