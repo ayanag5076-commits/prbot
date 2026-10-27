@@ -27,6 +27,7 @@ PYTEST_TIME = re.compile(r"\bin ([0-9]+(?:\.[0-9]+)?)s\b")
 
 class TokenUsage(BaseModel):
     agent: str
+    step: str = ""  # reviewer pass ("security" / "performance"); empty for the patcher (see attempt)
     attempt: int = 0
     input_tokens: int = 0
     cached_input_tokens: int = 0
@@ -65,6 +66,63 @@ def cost_usd(usages: list[TokenUsage], model: str) -> Optional[float]:
         fresh = max(0, u.input_tokens - u.cached_input_tokens)
         total += fresh * pin + u.cached_input_tokens * pcached + u.output_tokens * pout
     return round(total / 1_000_000, 6)
+
+
+def node_label(u: TokenUsage) -> str:
+    if u.step:
+        return f"{u.agent}:{u.step}"
+    if u.agent == "patcher" and u.attempt:
+        return f"patcher:attempt{u.attempt}"
+    return u.agent
+
+
+def node_breakdown(usages: list[TokenUsage], model: str) -> list[dict]:
+    """Tokens and cost per graph node / reviewer pass / patcher attempt, in call order."""
+    rows: dict[str, dict] = {}
+    for u in usages:
+        r = rows.setdefault(node_label(u), {"node": node_label(u), "calls": 0, "input_tokens": 0,
+                                            "output_tokens": 0, "tokens": 0, "_u": []})
+        r["calls"] += u.calls
+        r["input_tokens"] += u.input_tokens
+        r["output_tokens"] += u.output_tokens
+        r["tokens"] += u.total
+        r["_u"].append(u)
+    total = sum(r["tokens"] for r in rows.values()) or 1
+    out = []
+    for r in rows.values():
+        r["cost_usd"] = cost_usd(r.pop("_u"), model)
+        r["share_pct"] = round(100 * r["tokens"] / total, 1)
+        out.append(r)
+    return out
+
+
+def format_breakdown(rows: list[dict]) -> str:
+    lines = []
+    for r in rows:
+        cost = "n/a" if r["cost_usd"] is None else f"${r['cost_usd']:.5f}"
+        lines.append(f"    {r['node']:<22} {r['tokens']:>7} tokens ({r['share_pct']:>5}%)  {cost}  "
+                     f"[{r['input_tokens']} in / {r['output_tokens']} out, {r['calls']} calls]")
+    return "\n".join(lines)
+
+
+def breakdown_summary(records: "list[RunRecord]") -> list[dict]:
+    """Average per-node tokens/cost across non-bench runs that recorded token usage."""
+    runs = [r for r in records if r.status != "bench" and r.tokens]
+    acc: dict[str, dict] = {}
+    for rec in runs:
+        for row in node_breakdown(rec.tokens, rec.model):
+            a = acc.setdefault(row["node"], {"node": row["node"], "runs": 0, "tokens": 0, "cost": 0.0, "priced": True})
+            a["runs"] += 1
+            a["tokens"] += row["tokens"]
+            if row["cost_usd"] is None:
+                a["priced"] = False
+            else:
+                a["cost"] += row["cost_usd"]
+    out = []
+    for a in acc.values():
+        out.append({"node": a["node"], "runs": a["runs"], "avg_tokens": round(a["tokens"] / a["runs"]),
+                    "avg_cost_usd": round(a["cost"] / a["runs"], 6) if a["priced"] else None})
+    return out
 
 
 def pytest_seconds(log: str) -> Optional[float]:
