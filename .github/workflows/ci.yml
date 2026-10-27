@@ -1,0 +1,25 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Offline tests (graph routing, sandbox isolation flags, secret-leak guard)
+        run: python -m pytest -q
+      - name: Build tester image
+        run: docker build -t prbot-tester:py3.12 -f docker/tester.Dockerfile .
+      - name: Live sandbox egress check (Docker)
+        run: python -m pytest -q tests/test_sandbox_isolation.py
+        env:
+          PRBOT_RUN_DOCKER_TESTS: "1"
+      - name: Offline demo end to end in Docker
+        run: python -m prbot review --dry-run --path demo_repo --diff demo_repo/pr.diff --offline --metrics-file /tmp/m.jsonl && python -m prbot metrics --file /tmp/m.jsonl --telemetry
