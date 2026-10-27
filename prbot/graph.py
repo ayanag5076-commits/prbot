@@ -95,7 +95,8 @@ def build_graph(agents: Agents):
         update: dict = {"findings": result.findings, "review_summary": result.summary}
         usage = getattr(agents.reviewer, "last_usage", None)
         if usage:
-            update["token_usage"] = state.token_usage + [usage]
+            entries = usage if isinstance(usage, list) else [usage]
+            update["token_usage"] = state.token_usage + [dict(u) for u in entries]
         return update
 
     def patcher_node(state: ReviewState) -> dict:
