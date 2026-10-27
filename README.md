@@ -78,7 +78,10 @@ How each row is produced:
 python -m prbot review --dry-run --path demo_repo --diff demo_repo/pr.diff --repeat 10   # 10 live runs (Docker + OpenAI)
 python -m prbot bench-sandbox --path demo_repo --runs 10                                  # Docker vs host overhead
 python -m prbot metrics --update-readme                                                   # fills the table above
+python -m prbot metrics --by-node                                                         # avg tokens/cost per reviewer pass and patcher attempt
 ```
+
+Every live run also prints a per-node token split (`reviewer:security`, `reviewer:performance`, `patcher:attempt1`, ...), so you can see what the second review pass costs compared with the patch loop.
 
 ## Reproduce the demo (no API key, no GitHub token)
 
@@ -196,11 +199,3 @@ docker/           tester image
 docs/             github-app.md
 tests/            offline unit + integration tests
 ```
-
-## Contributing
-
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
-
-## License
-
-[MIT](LICENSE) © 2026 Ayana Greer
