@@ -44,7 +44,7 @@ class LLMReviewer:
             self.structured = chat_model.with_structured_output(Findings, include_raw=True)
         except TypeError:  # simple fakes
             self.structured = chat_model.with_structured_output(Findings)
-        self.last_usage: dict | None = None
+        self.last_usage: list[dict] | None = None
 
     def review(self, ws: Workspace, changed: list[ChangedFile]) -> Findings:
         """One focused structured-output call per category pass (security, performance), merged and de-duplicated.
@@ -52,7 +52,7 @@ class LLMReviewer:
         from prbot.metrics import usage_from_message
 
         context = build_review_context(ws, changed)
-        usage = {"agent": "reviewer", "input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0, "calls": 0}
+        usages: list[dict] = []
         merged: list = []
         summaries: list[str] = []
         for focus in self.passes or ("",):
@@ -63,10 +63,8 @@ class LLMReviewer:
             result = self.structured.invoke(messages)
             if isinstance(result, dict) and "parsed" in result:  # include_raw=True
                 i, c, o = usage_from_message(result.get("raw"))
-                usage["input_tokens"] += i
-                usage["cached_input_tokens"] += c
-                usage["output_tokens"] += o
-                usage["calls"] += 1
+                usages.append({"agent": "reviewer", "step": focus or "single", "input_tokens": i,
+                               "cached_input_tokens": c, "output_tokens": o, "calls": 1})
                 if result.get("parsed") is None:
                     raise ValueError(f"Reviewer output failed schema validation: {result.get('parsing_error')}")
                 result = result["parsed"]
@@ -74,8 +72,8 @@ class LLMReviewer:
             merged.extend(f for f in part.findings if focus not in PASS_FOCUS or f.category == focus)
             if part.summary:
                 summaries.append(part.summary)
-        if usage["calls"]:
-            self.last_usage = usage
+        if usages:
+            self.last_usage = usages  # one entry per pass, so cost can be split by pass
         return _ground(Findings(findings=_dedupe(merged), summary=" ".join(summaries)), ws, changed)
 
 
