@@ -71,6 +71,56 @@ def _regions(lines: list[int], window: int, total: int) -> list[tuple[int, int]]
     return [(s, e) for s, e in regions]
 
 
+_QUERY_CALLS = {"execute", "executemany", "fetchone", "fetchall", "query", "get", "filter", "all", "first", "scalar", "read", "open", "request", "urlopen"}
+
+
+def performance_hotspots(source: str, lines: set[int] | None = None) -> list[str]:
+    """Deterministic AST hints for the reviewer: I/O or queries inside loops (N+1), and nested loops
+    over the same iterable (accidental O(n^2)). Hints are leads, not verdicts; the model decides."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    hints: list[str] = []
+
+    def touched(node) -> bool:
+        if lines is None:
+            return True
+        end = getattr(node, "end_lineno", node.lineno)
+        return any(node.lineno <= ln <= end for ln in lines)
+
+    def iter_name(loop) -> str | None:
+        it = loop.iter
+        if isinstance(it, ast.Call) and isinstance(it.func, ast.Name) and it.func.id in {"enumerate", "range", "len", "list", "sorted"} and it.args:
+            it = it.args[0]
+            if isinstance(it, ast.Call) and isinstance(it.func, ast.Name) and it.func.id == "len" and it.args:
+                it = it.args[0]
+        return ast.unparse(it) if isinstance(it, (ast.Name, ast.Attribute)) else None
+
+    for loop in ast.walk(tree):
+        if not isinstance(loop, (ast.For, ast.AsyncFor, ast.While)) or not touched(loop):
+            continue
+        for node in ast.walk(loop):
+            if node is loop:
+                continue
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"execute", "executemany", "query", "urlopen", "request"}:
+                hints.append(f"L{node.lineno}: `{node.func.attr}(...)` call inside the loop at L{loop.lineno} (possible N+1 / repeated I/O)")
+            if isinstance(node, (ast.For, ast.AsyncFor)) and isinstance(loop, (ast.For, ast.AsyncFor)):
+                a, b = iter_name(loop), iter_name(node)
+                if a and a == b:
+                    hints.append(f"L{node.lineno}: nested loop over `{b}` inside the loop over `{a}` at L{loop.lineno} (possible O(n^2))")
+            if isinstance(node, ast.Compare) and any(isinstance(op, (ast.In, ast.NotIn)) for op in node.ops):
+                for c in node.comparators:
+                    if isinstance(c, ast.Name):
+                        hints.append(f"L{node.lineno}: `in {c.id}` membership test inside the loop at L{loop.lineno} (O(n) per check if `{c.id}` is a list)")
+    seen, out = set(), []
+    for h in hints:
+        if h not in seen:
+            seen.add(h)
+            out.append(h)
+    return out
+
+
 def build_review_context(ws: Workspace, changed: list[ChangedFile], window: int = 12) -> str:
     """Markdown context for the reviewer: per file, the diff hunks plus numbered surrounding code."""
     parts: list[str] = []
@@ -84,6 +134,9 @@ def build_review_context(ws: Workspace, changed: list[ChangedFile], window: int 
         syms = _enclosing_symbols(source, set(cf.changed_lines))
         if syms:
             parts.append("Touched symbols: " + ", ".join(syms))
+        hot = performance_hotspots(source, set(cf.changed_lines)) if cf.path.endswith(".py") else []
+        if hot:
+            parts.append("Static hotspot hints (verify each):\n" + "\n".join(f"- {h}" for h in hot))
         if cf.patch:
             parts.append("### Diff\n```diff\n" + cf.patch.strip() + "\n```")
         parts.append("### Code (new version, numbered; changed lines marked with >)")
