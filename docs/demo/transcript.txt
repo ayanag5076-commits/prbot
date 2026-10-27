@@ -1,0 +1,12 @@
+# Real output from CI run 40457254739 (offline scripted model, real Docker sandbox)
+$ python -m prbot review --dry-run --path demo_repo --diff demo_repo/pr.diff --offline
+status: patched | findings: 3 | attempts: 2/3
+  [high    ] performance app/reports.py:10  N+1 query inside a loop
+  [critical] security    app/users.py:7  SQL injection via f-string query
+  [medium  ] performance app/users.py:14  Quadratic nested loop over the same sequence
+  attempt 1: tests FAIL (exit 1, docker)
+  attempt 2: tests PASS (exit 0, docker)
+  -> prbot-out/report.md
+  -> prbot-out/findings.json
+  -> prbot-out/fix.patch
+  metrics: 0 tokens, n/a, 1.77s total, sandbox overhead 0.57s/run
