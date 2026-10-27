@@ -1,0 +1,8 @@
+langgraph>=0.2
+langchain-core>=0.3
+langchain-openai>=0.2
+pydantic>=2.6
+PyGithub>=2.3
+python-dotenv>=1.0
+requests>=2.31
+pytest>=8
