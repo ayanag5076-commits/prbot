@@ -115,3 +115,40 @@ def test_docker_command_is_locked_down():
     for flag in ["--network none", "--read-only", "--cap-drop ALL", "--pids-limit", "--memory", "/tmp/x:/workspace:ro"]:
         assert flag in joined
     assert cmd[cmd.index("img:tag") + 1:] == ["python", "-m", "pytest", "-p", "no:cacheprovider"]
+
+
+def test_hotspot_hints_flag_n_plus_one_and_quadratic(demo_copy):
+    from prbot.context import performance_hotspots
+
+    reports = performance_hotspots((demo_copy / "app/reports.py").read_text())
+    users = performance_hotspots((demo_copy / "app/users.py").read_text())
+    assert any("execute" in h and "N+1" in h for h in reports)
+    assert any("O(n^2)" in h and "emails" in h for h in users)
+    ctx = build_review_context(Workspace(demo_copy), changed_files_from_diff((demo_copy / "pr.diff").read_text()))
+    assert "Static hotspot hints" in ctx
+
+
+def test_llm_reviewer_runs_focused_passes_and_merges(demo_copy):
+    ws = Workspace(demo_copy)
+    changed = changed_files_from_diff((demo_copy / "pr.diff").read_text())
+    sqli = Finding(file="app/users.py", line=7, severity="critical", category="security", title="sqli", rationale="r")
+    n1 = Finding(file="app/reports.py", line=10, severity="high", category="performance", title="n+1", rationale="r")
+    quad = Finding(file="app/users.py", line=15, severity="high", category="performance", title="o(n^2)", rationale="r")
+
+    class TwoPass:
+        def __init__(self):
+            self.calls = []
+
+        def with_structured_output(self, schema, **kw):
+            return self
+
+        def invoke(self, messages):
+            self.calls.append(messages[0].content)
+            # each pass "sees" everything; the reviewer keeps only the pass's own category, deduped
+            return Findings(findings=[sqli, n1, quad, sqli])
+
+    model = TwoPass()
+    out = LLMReviewer(model).review(ws, changed)
+    assert len(model.calls) == 2
+    assert "ONLY security" in model.calls[0] and "ONLY performance" in model.calls[1]
+    assert out.findings == [sqli, n1, quad]
