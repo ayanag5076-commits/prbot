@@ -1,12 +1,13 @@
-# Real output from CI run 40457254739 (offline scripted model, real Docker sandbox)
-$ python -m prbot review --dry-run --path demo_repo --diff demo_repo/pr.diff --offline
+# Live gpt-4.1-mini run on prbot-demo-shop PR #1, Docker sandbox (OrbStack, Apple Silicon)
+$ python -m prbot review --repo ayanag5076-commits/prbot-demo-shop --pr 1 --dry-run
+Fetching ayanag5076-commits/prbot-demo-shop#1: Add user lookups and order totals report
 status: patched | findings: 3 | attempts: 2/3
-  [high    ] performance app/reports.py:10  N+1 query inside a loop
   [critical] security    app/users.py:7  SQL injection via f-string query
-  [medium  ] performance app/users.py:14  Quadratic nested loop over the same sequence
+  [high    ] performance app/reports.py:9  N+1 query pattern in order_totals_by_user
+  [high    ] performance app/users.py:14  Quadratic nested loops in find_duplicate_emails
   attempt 1: tests FAIL (exit 1, docker)
   attempt 2: tests PASS (exit 0, docker)
   -> prbot-out/report.md
   -> prbot-out/findings.json
   -> prbot-out/fix.patch
-  metrics: 0 tokens, n/a, 1.77s total, sandbox overhead 0.57s/run
+  metrics: 16984 tokens, $0.00779, 24.74s total, sandbox overhead 0.67s/run
