@@ -196,3 +196,11 @@ docker/           tester image
 docs/             github-app.md
 tests/            offline unit + integration tests
 ```
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
+
+## License
+
+[MIT](LICENSE) © 2026 Ayana Greer
