@@ -100,6 +100,7 @@ class ReviewState(BaseModel):
     token_usage: list[dict] = Field(default_factory=list)  # one TokenUsage dict per agent call batch
     test_runs: list[TestResult] = Field(default_factory=list)  # every verification run, for latency metrics
     attempt_history: list[dict] = Field(default_factory=list)
+    patch_scope: list[str] = Field(default_factory=list)  # "file:line" of findings the last patch targeted, when narrowed
 
     status: Status = "pending"
     report: str = ""
@@ -107,3 +108,14 @@ class ReviewState(BaseModel):
 
     def actionable_findings(self) -> list[Finding]:
         return [f for f in self.findings if f.is_actionable(self.min_severity)]
+
+    def patch_targets(self) -> list[Finding]:
+        """Findings the next patch attempt should fix. On the LAST attempt after a failed all-in-one patch,
+        narrow to the most severe findings so a smaller, verifiable fix can still ship (graceful degradation)."""
+        actionable = self.actionable_findings()
+        last_attempt = self.attempts + 1 == self.max_attempts
+        if not (last_attempt and self.attempted_patches and len(actionable) > 1):
+            return actionable
+        top = max(SEVERITY_RANK[f.severity] for f in actionable)
+        narrowed = [f for f in actionable if SEVERITY_RANK[f.severity] == top]
+        return narrowed if len(narrowed) < len(actionable) else actionable[:1]
