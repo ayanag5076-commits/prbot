@@ -42,10 +42,15 @@ def render_report(state: ReviewState) -> str:
                 lines.append(f"*Fix:* {f.suggestion}")
             lines.append("")
     if state.attempt_history:
-        lines += ["## Self-correction loop", "", "| Attempt | Patch | Tests | Runner |", "|---|---|---|---|"]
+        lines += ["## Self-correction loop", "", "| Attempt | Scope | Patch | Tests | Runner |", "|---|---|---|---|---|"]
         for h in state.attempt_history:
-            lines.append(f"| {h['attempt']} | {'yes' if h['has_patch'] else 'no'} | {'✅ pass' if h['passed'] else '❌ fail'} | {h['runner']} |")
+            lines.append(f"| {h['attempt']} | {h.get('scope', 'all findings')} | {'yes' if h['has_patch'] else 'no'} | {'✅ pass' if h['passed'] else '❌ fail'} | {h['runner']} |")
         lines.append("")
+        if state.patch_scope and state.status == "patched":
+            left = [f for f in state.actionable_findings() if f"{f.file}:{f.line}" not in state.patch_scope]
+            if left:
+                lines += ["**Partial fix:** the full patch kept failing, so the last attempt fixed only the most severe "
+                          "finding(s). Still open: " + ", ".join(f"`{f.file}:{f.line}` {f.title}" for f in left), ""]
     if state.patch:
         verdict = "verified ✅" if state.status == "patched" else "NOT verified ❌"
         lines += [f"## Proposed patch ({verdict})", "", state.patch.explanation, "", "```diff", state.patch.diff.rstrip(), "```", ""]
