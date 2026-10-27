@@ -49,3 +49,16 @@ def test_final_status_values():
     assert final_status(S(findings=[F("low")])) == "review_only"
     assert final_status(S(findings=[F()], patch=p, test_result=TestResult(passed=True, exit_code=0))) == "patched"
     assert final_status(S(findings=[F()], patch=p, test_result=TestResult(passed=False, exit_code=1))) == "failed"
+
+
+def test_last_attempt_narrows_to_most_severe_findings():
+    from prbot.models import Finding, ReviewState
+
+    sqli = Finding(file="app/users.py", line=7, severity="critical", category="security", title="sqli", rationale="r")
+    n1 = Finding(file="app/reports.py", line=10, severity="high", category="performance", title="n+1", rationale="r")
+    s = ReviewState(repo_path=".", findings=[sqli, n1], max_attempts=3)
+    assert s.patch_targets() == [sqli, n1]  # first attempt: everything
+    s = s.model_copy(update={"attempts": 1, "attempted_patches": ["d1"]})
+    assert s.patch_targets() == [sqli, n1]  # middle attempt: still everything
+    s = s.model_copy(update={"attempts": 2, "attempted_patches": ["d1", "d2"]})
+    assert s.patch_targets() == [sqli]  # last attempt: ship a verified fix for the critical one
