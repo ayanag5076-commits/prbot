@@ -36,6 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
     m = sub.add_parser("metrics", help="Aggregate the metrics ledger (token cost, recovery rate, sandbox latency).")
     m.add_argument("--file", default="prbot-out/metrics.jsonl")
     m.add_argument("--markdown", action="store_true", help="print the detailed metrics table")
+    m.add_argument("--by-node", action="store_true",
+                   help="average tokens and cost per node (reviewer pass, patcher attempt) across runs")
     m.add_argument("--telemetry", action="store_true", help="print the README 'System Benchmarks & Telemetry' table")
     m.add_argument("--update-readme", metavar="README", nargs="?", const="README.md",
                    help="write the telemetry table into README.md between the METRICS markers")
@@ -152,6 +154,10 @@ def cmd_review(args) -> int:
     docker = [s for s in record.sandbox if s.overhead_s is not None]
     over = f", sandbox overhead {sum(s.overhead_s for s in docker) / len(docker):.2f}s/run" if docker else ""
     print(f"  metrics: {record.total_tokens} tokens, {cost}, {record.wall_s}s total{over}")
+    if record.total_tokens:
+        from prbot.metrics import format_breakdown, node_breakdown
+        print("  tokens by node:")
+        print(format_breakdown(node_breakdown(record.tokens, record.model)))
     if final.status == "aborted":
         return 3
     return 0 if final.status in {"clean", "patched", "review_only"} else 1
@@ -167,6 +173,17 @@ def cmd_metrics(args) -> int:
         print(f"No runs recorded in {args.file} yet.")
         return 1
     s = summarize(records)
+    if getattr(args, "by_node", False):
+        from prbot.metrics import breakdown_summary
+        rows = breakdown_summary(records)
+        if not rows:
+            print("No token usage recorded yet.")
+            return 1
+        print("| Node | Runs | Avg tokens | Avg cost |\n|---|---|---|---|")
+        for r in rows:
+            cost = "n/a" if r["avg_cost_usd"] is None else f"${r['avg_cost_usd']:.5f}"
+            print(f"| {r['node']} | {r['runs']} | {r['avg_tokens']} | {cost} |")
+        return 0
     if args.update_readme:
         ok = update_readme(args.update_readme, to_telemetry_table(s))
         print(f"updated {args.update_readme}" if ok else f"METRICS markers not found in {args.update_readme}")
