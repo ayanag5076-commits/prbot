@@ -1,5 +1,13 @@
 # prbot: Autonomous PR Review & Code-Patching Agent
 
+[![ci](https://github.com/ayanag5076-commits/prbot/actions/workflows/ci.yml/badge.svg)](https://github.com/ayanag5076-commits/prbot/actions/workflows/ci.yml)
+![python](https://img.shields.io/badge/python-3.12-blue)
+![LangGraph](https://img.shields.io/badge/built%20with-LangGraph-1c3c3c)
+![cost](https://img.shields.io/badge/live%20review-~%240.003-brightgreen)
+![sandbox](https://img.shields.io/badge/sandbox-network%20none-informational)
+
+![prbot catching three seeded bugs, failing its first patch, and self-correcting](docs/demo/prbot-demo.gif)
+
 A graph-based multi-agent system that reviews a pull request, writes a patch for the security and
 performance bugs it finds, **proves the patch doesn't break the build** by running the test suite in a
 network-isolated Docker container, and iterates on failures before anything is published to GitHub.
@@ -21,6 +29,27 @@ flowchart TD
 **Stack:** Python · LangGraph · LangChain tool calling · OpenAI (`gpt-4.1-mini` default) · Pydantic structured outputs · PyGithub (GitHub App auth) · Docker · Pytest
 
 **Live demo target:** [ayanag5076-commits/prbot-demo-shop PR #1](https://github.com/ayanag5076-commits/prbot-demo-shop/pull/1)
+
+## Use it on your repo in 2 minutes (GitHub Action)
+
+1. Add an `OPENAI_API_KEY` secret (Settings -> Secrets and variables -> Actions).
+2. Copy [`examples/prbot-review.yml`](examples/prbot-review.yml) to `.github/workflows/`:
+
+```yaml
+on: { pull_request: { types: [opened, synchronize, reopened] } }
+permissions: { contents: read, pull-requests: write }
+jobs:
+  prbot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ayanag5076-commits/prbot@main
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+```
+
+Every PR gets inline review comments, a verified `fix.patch` artifact, and the report in the job summary.
+Set `open-fix-pr: "true"` (plus `contents: write`) to have prbot open a follow-up PR with the fix.
+Secrets aren't exposed to workflows triggered from forks, so on public repos prbot reviews PRs from branches in the repo.
 
 ## System Benchmarks & Telemetry
 
