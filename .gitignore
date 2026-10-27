@@ -1,0 +1,22 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+out/
+prbot-out/
+.DS_Store
+.idea/
+.vscode/
+
+# secrets: never commit keys
+.env.*
+!.env.example
+*.pem
+*.key
+*.private-key.pem
+secrets/
