@@ -18,7 +18,9 @@ def render_report(state: ReviewState) -> str:
     if state.pr:
         lines += [f"**PR:** {state.pr.repo}#{state.pr.number} {state.pr.title}".rstrip(), ""]
     if state.baseline is not None and not state.abort_reason:
-        lines += [f"**Baseline:** tests pass on the unpatched PR ({state.baseline.runner}).", ""]
+        n = len(state.baseline.passed_ids)
+        ids = f" {n} test ID(s) recorded; a patch only counts as verified if all of them still pass." if n else ""
+        lines += [f"**Baseline:** tests pass on the unpatched PR ({state.baseline.runner}).{ids}", ""]
     lines += [f"**Status:** `{state.status}` · **Patch attempts:** {state.attempts}/{state.max_attempts}", ""]
     if state.abort_reason:
         lines += ["## ⛔ Aborted", state.abort_reason, ""]
@@ -44,7 +46,12 @@ def render_report(state: ReviewState) -> str:
     if state.attempt_history:
         lines += ["## Self-correction loop", "", "| Attempt | Scope | Patch | Tests | Runner |", "|---|---|---|---|---|"]
         for h in state.attempt_history:
-            lines.append(f"| {h['attempt']} | {h.get('scope', 'all findings')} | {'yes' if h['has_patch'] else 'no'} | {'✅ pass' if h['passed'] else '❌ fail'} | {h['runner']} |")
+            tests = "✅ pass" if h["passed"] else "❌ fail"
+            if h.get("protected"):
+                tests = "⛔ rejected: touched " + ", ".join(f"`{p}`" for p in h["protected"])
+            elif h.get("missing_ids"):
+                tests = f"❌ exit {h['exit_code']} but {h['missing_ids']} baseline test(s) missing"
+            lines.append(f"| {h['attempt']} | {h.get('scope', 'all findings')} | {'yes' if h['has_patch'] else 'no'} | {tests} | {h['runner']} |")
         lines.append("")
         if state.patch_scope and state.status == "patched":
             left = [f for f in state.actionable_findings() if f"{f.file}:{f.line}" not in state.patch_scope]
