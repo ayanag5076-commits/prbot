@@ -119,8 +119,9 @@ The diagram at the top is the exact `StateGraph` in `prbot/graph.py`.
 | **State** | One Pydantic `ReviewState` flows through a LangGraph `StateGraph` | `prbot/models.py`, `prbot/graph.py` |
 | **Baseline gate** | Runs the suite on the unpatched PR. If red, runs the base branch to attribute blame, then aborts with *"Review aborted: Main test suite is currently failing."* as a top-level PR comment | `baseline_node` in `prbot/graph.py` |
 | **Agent A: Reviewer** | Context from the diff (hunks, numbered surrounding code, enclosing functions via `ast`) → `with_structured_output(Findings)`; drops hallucinated files/lines | `prbot/agents/reviewer.py`, `prbot/context.py` |
-| **Agent B: Patcher** | Hand-rolled **ReAct loop** over native tool calling. `write_patch` validates the diff (applies, compiles, isn't a repeat of a failed patch) and returns errors as observations | `prbot/agents/patcher.py`, `prbot/tools.py` |
+| **Agent B: Patcher** | Hand-rolled **ReAct loop** over native tool calling. `write_patch` validates the diff (applies, compiles, isn't a repeat of a failed patch, leaves the test contract alone) and returns errors as observations | `prbot/agents/patcher.py`, `prbot/tools.py` |
 | **Anti-correction-loop** | `attempted_patches` history: every failed diff + log goes into the patcher's system prompt with "pivot to a structurally different solution"; exact repeats are rejected in-loop | `build_system` in `patcher.py`, `normalize_diff` in `tools.py` |
+| **Verification contract** | Tests, `conftest.py` and pytest/collection settings (`pytest.ini`, `pyproject.toml`, `setup.cfg`, `tox.ini`, `.pth`) are read-only to the patcher: `write_patch` rejects them and the tester refuses to run such a patch. The baseline records every passing test ID; a patched run passes only if exit 0 **and** none of those IDs went missing | `prbot/guard.py` |
 | **Agent C: Tester** | Copies the repo, applies the patch, runs pytest in Docker: `--network none --read-only --cap-drop ALL`, CPU/mem/pids limits, hard timeout + `docker kill` | `prbot/agents/tester.py` |
 | **Patch engine** | Forgiving unified-diff applier: ignores wrong hunk counts, finds hunks by context, blocks path traversal | `prbot/patching.py` |
 | **GitHub** | Fetch PR + tarball checkout of head and base; inline comments only on lines GitHub accepts; fix PR `prbot/fix-pr-N` **only if tests passed** | `prbot/github/client.py` |
@@ -135,6 +136,9 @@ The diagram at the top is the exact `StateGraph` in `prbot/graph.py`.
 - **Secrets stay local.** `OPENAI_API_KEY` and the App private key load from `.env` / a `.pem` outside the repo.
   `.env`, `.env.*` and `*.pem` are git-ignored, and `tests/test_session2.py::test_no_secrets_committed` fails the
   build if a key-shaped string or key file ever appears in the tree.
+- **The fix can't move the goalposts.** A green run is only evidence if it checks the same contract, so automatic
+  patches may not touch tests, conftest.py or collection settings, and "passed" also means every baseline test ID
+  still passed (a patch that skips or deselects tests fails even with exit 0).
 - **Untrusted test code is sandboxed:** no network, read-only root FS, dropped capabilities, resource limits, timeout.
 - **Writes are opt-in:** `--post-review` / `--open-fix-pr` plus a confirmation prompt; `--dry-run` can never write;
   unverified patches are never pushed (saved as `unverified.patch`).
@@ -174,7 +178,7 @@ pytest     # offline suite (the live Docker egress test runs in CI)
 ```
 
 Covers every conditional edge, the baseline abort and its PR comment, the attempt cap, failed-patch history and
-repeat rejection, in-attempt recovery from bad diffs, GitHub App least-privilege token requests, comment placement,
+repeat rejection, the protected test contract and baseline test-ID check, in-attempt recovery from bad diffs, GitHub App least-privilege token requests, comment placement,
 metrics math, and the secret-leak guard.
 
 ## Design notes
@@ -185,6 +189,8 @@ metrics math, and the secret-leak guard.
   in-loop saves a full Docker run per mistake.
 - **Why keep every failed diff:** models fall into correction loops, resubmitting variations of the same broken patch.
   The full history plus a pivot instruction and exact-repeat rejection break the loop.
+- **Why protect the tests too:** a repair loop optimizes for green, and the cheapest green is editing the assertion,
+  a fixture or `addopts`. Exit code 0 also hides a smaller suite, so the tester compares test IDs, not just the exit code.
 - **Why a baseline gate:** if the suite is already red, no patch can turn it green; the agent would burn every attempt
   and tokens on code it didn't break.
 
@@ -192,7 +198,7 @@ metrics math, and the secret-leak guard.
 
 ```
 prbot/            agents/ (reviewer, patcher, tester) · github/ (auth, client) · graph · models · tools · patching
-                  context · metrics · offline · cli
+                  guard · context · metrics · offline · cli
 demo_repo/        seeded bugs (SQLi, N+1, O(n²)) + pytest suite + pr.diff (mirrors prbot-demo-shop PR #1)
 docker/           tester image
 .github/workflows ci.yml: tests, secret guard, live sandbox egress check, Docker demo run
