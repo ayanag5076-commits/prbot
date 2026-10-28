@@ -19,7 +19,9 @@ Work in a ReAct loop: think, call a tool, read the observation, repeat.
 3. Fix every listed finding with the smallest change that preserves the public API and existing behaviour.
 4. Submit ONE unified diff covering all files via write_patch. Context lines must match the file exactly.
 5. If write_patch returns ERROR, read the file again and resubmit a corrected diff.
-Never edit tests to make them pass."""
+Never edit tests to make them pass. Test files, conftest.py and pytest/collection settings (pytest.ini,
+pyproject.toml, setup.cfg, tox.ini) are read-only: write_patch rejects any diff that touches them, and every
+test that passed before your patch must still pass (and still be collected) after it."""
 
 FAILED_APPROACHES = """
 
