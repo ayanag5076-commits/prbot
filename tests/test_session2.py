@@ -1,6 +1,7 @@
 """Session 2: baseline gate, GitHub App least-privilege auth, metrics, and a secret-leak guard."""
 import json
 import re
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -192,9 +193,22 @@ SECRET_PATTERNS = [
 ]
 
 
+def _committable_files() -> list[Path]:
+    """Files git would commit: tracked + untracked-but-not-ignored. Your local, git-ignored .env is fine.
+    Outside a git checkout (e.g. an unzipped copy) every file counts."""
+    try:
+        out = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=ROOT,
+                             capture_output=True, text=True, check=True).stdout
+        if (ROOT / ".git").exists():
+            return [ROOT / f for f in out.split("\0") if f]
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return list(ROOT.rglob("*"))
+
+
 def test_no_secrets_committed():
     offenders = []
-    for p in ROOT.rglob("*"):
+    for p in _committable_files():
         rel = p.relative_to(ROOT)
         if any(part in {".git", ".venv", "venv", "__pycache__", ".pytest_cache"} for part in rel.parts):
             continue
@@ -205,6 +219,21 @@ def test_no_secrets_committed():
         text = p.read_text(errors="ignore")
         offenders += [f"{rel}: {rx.pattern}" for rx in SECRET_PATTERNS if rx.search(text)]
     assert not offenders, offenders
+
+
+def test_ignored_env_file_is_not_flagged(tmp_path, monkeypatch):
+    import shutil
+    if shutil.which("git") is None:
+        pytest.skip("git not installed")
+    repo = tmp_path / "r"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / ".gitignore").write_text(".env\n")
+    (repo / ".env").write_text("OPENAI_API_KEY=sk-" + "x" * 30 + "\n")
+    (repo / "app.py").write_text("print('hi')\n")
+    monkeypatch.setitem(globals(), "ROOT", repo)
+    names = {p.name for p in _committable_files()}
+    assert "app.py" in names and ".env" not in names
 
 
 def test_gitignore_blocks_secrets():
