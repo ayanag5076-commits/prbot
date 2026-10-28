@@ -114,7 +114,7 @@ def test_docker_command_is_locked_down():
     joined = " ".join(cmd)
     for flag in ["--network none", "--read-only", "--cap-drop ALL", "--pids-limit", "--memory", "/tmp/x:/workspace:ro"]:
         assert flag in joined
-    assert cmd[cmd.index("img:tag") + 1:] == ["python", "-m", "pytest", "-p", "no:cacheprovider"]
+    assert cmd[cmd.index("img:tag") + 1:] == ["python", "-m", "pytest", "-p", "no:cacheprovider", "-rA"]
 
 
 def test_hotspot_hints_flag_n_plus_one_and_quadratic(demo_copy):
