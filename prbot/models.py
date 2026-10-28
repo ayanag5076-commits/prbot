@@ -69,6 +69,9 @@ class TestResult(BaseModel):
     duration_s: float = 0.0
     runner: str = "docker"
     timed_out: bool = False
+    passed_ids: list[str] = Field(default_factory=list)  # pytest node IDs that passed (from the -rA summary)
+    missing_ids: list[str] = Field(default_factory=list)  # baseline-passing IDs that did not pass after the patch
+    protected_paths: list[str] = Field(default_factory=list)  # test/config files the patch tried to change
 
 
 # ---------------------------------------------------------------- graph state
