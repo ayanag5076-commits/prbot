@@ -59,10 +59,10 @@ The platform tracks and records execution safety metrics via a local JSONL telem
 | Metric / Constraint | Baseline Target | Performance Realization | Verification Status |
 | :--- | :--- | :--- | :--- |
 | **Sandbox Network Egress** | 0 Bytes (Blocked) | 0 Bytes (`--network none`, `--cap-drop ALL`) | Verified via `test_sandbox_isolation` |
-| **Self-Correction Recovery** | < 3 Attempts | **2 Attempts** (live gpt-4.1-mini: 3 bugs found, attempt 1 failed a test, attempt 2 passed) | Active Engine Runtime |
+| **Self-Correction Recovery** | < 3 Attempts | **1.5 Attempts** (median of 4 repairs, 66.7% recovered) | Active Engine Runtime |
 | **AST Diff Pre-Validation** | 100% Syntax Pass | Checked before any container run | Verified via `tools.py` |
 | **Secret Leaks Detected** | 0 Key Escapes | 0 Variables Exposed | Verified via `tests/` CI guard |
-| **P90 Execution Latency** | Under 45s | **10.03s** (2 Docker runs) | Met · `python -m prbot metrics` |
+| **P90 Execution Latency** | Under 45s | **24.74s** (6 Docker runs) | Met · `python -m prbot metrics` |
 <!-- METRICS:END -->
 
 How each row is produced:
