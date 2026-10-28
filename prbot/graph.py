@@ -112,11 +112,12 @@ def build_graph(agents: Agents):
         return update
 
     def tester_node(state: ReviewState) -> dict:
-        result = agents.tester.verify(state.repo_path, state.patch)
+        result = agents.tester.verify(state.repo_path, state.patch, state.baseline)
         history = state.attempt_history + [{
             "attempt": state.attempts, "has_patch": state.patch is not None,
             "passed": result.passed, "exit_code": result.exit_code, "runner": result.runner,
             "scope": ", ".join(state.patch_scope) if state.patch_scope else "all findings",
+            "missing_ids": len(result.missing_ids), "protected": result.protected_paths,
         }]
         update: dict = {"test_result": result, "attempt_history": history, "test_runs": state.test_runs + [result]}
         if not result.passed:
