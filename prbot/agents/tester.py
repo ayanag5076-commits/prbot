@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Protocol
 
 from prbot.models import PatchProposal, TestResult
+from prbot.guard import passed_ids, protected_message, protected_paths_in_diff
 from prbot.patching import PatchError, apply_patch_to_dir
 from prbot.workspace import SKIP_DIRS
 
@@ -35,7 +36,7 @@ class DockerRunner:
 
     def __init__(self, image: str, command: list[str] | None = None):
         self.image = image
-        self.command = command or ["python", "-m", "pytest", "-p", "no:cacheprovider"]
+        self.command = command or ["python", "-m", "pytest", "-p", "no:cacheprovider", "-rA"]
 
     def build_cmd(self, workdir: Path, container: str) -> list[str]:
         return [
@@ -70,7 +71,7 @@ class LocalRunner:
     def run(self, workdir: Path, timeout: int) -> tuple[int, str, bool]:
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
         try:
-            proc = subprocess.run([sys.executable, "-m", "pytest", "-p", "no:cacheprovider"],
+            proc = subprocess.run([sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-rA"],
                                   cwd=workdir, capture_output=True, text=True, timeout=timeout, env=env)
             return proc.returncode, proc.stdout + proc.stderr, False
         except subprocess.TimeoutExpired as e:
@@ -102,12 +103,19 @@ class Tester:
             code, out, timed_out = self.runner.run(work, self.timeout)
             # pytest exit 5 = no tests collected: nothing to protect, but nothing broken either
             return TestResult(passed=code in (0, 5), exit_code=code, log=tail(out), runner=self.runner.name,
-                              duration_s=round(time.monotonic() - t0, 2), timed_out=timed_out)
+                              duration_s=round(time.monotonic() - t0, 2), timed_out=timed_out,
+                              passed_ids=passed_ids(out))
 
-    def verify(self, repo_path: str, patch: PatchProposal | None) -> TestResult:
+    def verify(self, repo_path: str, patch: PatchProposal | None, baseline: TestResult | None = None) -> TestResult:
+        """Apply the patch in a throwaway copy and run the suite. Passing means: the patch leaves tests and
+        collection settings untouched, pytest exits 0, AND every test that passed on the baseline still passes."""
         if patch is None:
             return TestResult(passed=False, exit_code=-1, runner=self.runner.name,
                               log="The patcher did not submit a valid patch (write_patch never succeeded).")
+        guarded = protected_paths_in_diff(patch.diff)
+        if guarded:  # defence in depth: write_patch already refuses these, but never run a rewritten contract
+            return TestResult(passed=False, exit_code=-1, runner=self.runner.name, protected_paths=sorted(guarded),
+                              log=f"Patch not run: {protected_message(guarded)}")
         with tempfile.TemporaryDirectory(prefix="prbot-") as tmp:
             work = Path(tmp) / "repo"
             _copy_repo(Path(repo_path), work)
@@ -117,5 +125,13 @@ class Tester:
                 return TestResult(passed=False, exit_code=-1, runner=self.runner.name, log=f"Patch failed to apply: {e}")
             t0 = time.monotonic()
             code, out, timed_out = self.runner.run(work, self.timeout)
-            return TestResult(passed=(code == 0), exit_code=code, log=tail(out), runner=self.runner.name,
-                              duration_s=round(time.monotonic() - t0, 2), timed_out=timed_out)
+            ids = passed_ids(out)
+            missing = sorted(set(baseline.passed_ids) - set(ids)) if baseline is not None else []
+            log = tail(out)
+            if code == 0 and missing:
+                shown = "\n".join(f"  - {i}" for i in missing[:20]) + ("\n  ..." if len(missing) > 20 else "")
+                log += (f"\n\nprbot: pytest exited 0 but {len(missing)} test(s) that passed on the unpatched baseline "
+                        f"did not pass after the patch (deselected, skipped, removed or no longer collected):\n{shown}")
+            return TestResult(passed=(code == 0 and not missing), exit_code=code, log=log, runner=self.runner.name,
+                              duration_s=round(time.monotonic() - t0, 2), timed_out=timed_out,
+                              passed_ids=ids, missing_ids=missing)
