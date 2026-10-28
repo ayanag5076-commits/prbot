@@ -9,6 +9,7 @@ from typing import Optional
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from prbot.guard import protected_message, protected_paths_in_diff
 from prbot.models import PatchProposal
 from prbot.patching import PatchError, apply_patch_in_memory
 from prbot.workspace import Workspace, WorkspaceError
@@ -70,6 +71,10 @@ def make_tools(ws: Workspace, holder: PatchHolder, failed_patches: list[str] | N
         return "\n".join(f"{p}:{n}: {line}" for p, n, line in hits)
 
     def write_patch(diff: str, explanation: str) -> str:
+        guarded = protected_paths_in_diff(diff)
+        if guarded:  # tests, conftest.py and pytest settings are the contract the fix is judged against
+            holder.rejected.append(f"protected paths: {', '.join(sorted(guarded))}")
+            return f"ERROR: patch rejected. {protected_message(guarded)}"
         try:
             changes = apply_patch_in_memory(ws.root, diff)
         except (PatchError, WorkspaceError) as e:
@@ -97,5 +102,5 @@ def make_tools(ws: Workspace, holder: PatchHolder, failed_patches: list[str] | N
         StructuredTool.from_function(search_code, name="search_code", args_schema=SearchCodeArgs,
                                      description="Regex search across the repo; returns path:line: text."),
         StructuredTool.from_function(write_patch, name="write_patch", args_schema=WritePatchArgs,
-                                     description="Submit the fix as a unified diff. It is validated (applies + compiles) and the result is returned."),
+                                     description="Submit the fix as a unified diff. It is validated (applies, compiles, leaves tests/conftest/pytest config untouched) and the result is returned."),
     ]
