@@ -42,7 +42,7 @@ jobs:
   prbot:
     runs-on: ubuntu-latest
     steps:
-      - uses: ayanag5076-commits/prbot@main
+      - uses: ayanag5076-commits/prbot@v1.0.0
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
 ```
